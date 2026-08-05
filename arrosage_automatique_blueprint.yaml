@@ -1,0 +1,256 @@
+# ============================================================
+# Blueprint : Arrosage Automatique
+# Déclenche l'arrosage une fois par jour à heure fixe, sauf s'il
+# a plu (intégration Météo-France), avec une durée variable
+# selon 3 paliers de température extérieure.
+# Compatible Home Assistant 2023.x+
+# ============================================================
+
+blueprint:
+  name: Arrosage Automatique
+  description: >
+    Déclenche l'arrosage automatique une fois par jour, à heure fixe.
+
+    **Logique :**
+    - Si de la pluie a été détectée (cumul du capteur pluie Météo-France ≥
+      seuil configuré) → l'arrosage est annulé.
+    - Sinon, la durée d'arrosage dépend de la température extérieure :
+      - Température < palier 1 → durée courte (x min)
+      - Palier 1 ≤ température ≤ palier 2 → durée moyenne (y min)
+      - Température > palier 2 → durée longue (z min)
+
+    Tous les seuils de température, le seuil de pluie et toutes les durées
+    sont entièrement configurables via des `input_number` que vous créez
+    dans Home Assistant et sélectionnez ci-dessous.
+  domain: automation
+  author: Yann Granger
+  homeassistant:
+    min_version: "2023.4.0"
+
+  input:
+    # ── Capteurs ──────────────────────────────────────────────
+    capteur_temperature:
+      name: Capteur température extérieure
+      description: Température extérieure utilisée pour choisir la durée d'arrosage.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    capteur_pluie:
+      name: Capteur cumul de pluie (Météo-France)
+      description: >
+        Capteur de l'intégration Météo-France donnant le cumul de pluie
+        (en mm) — par exemple le cumul du jour ou des dernières 24h.
+      selector:
+        entity:
+          domain: sensor
+
+    # ── Seuils (configurables via input_number) ───────────────
+    seuil_pluie_mm:
+      name: Seuil de pluie (mm)
+      description: >
+        Si le cumul de pluie du capteur ci-dessus est supérieur ou égal à
+        cette valeur, l'arrosage est annulé.
+      selector:
+        entity:
+          domain: input_number
+
+    palier_temp_1:
+      name: Palier de température 1 (°C)
+      description: En dessous de ce palier → durée courte (x min).
+      selector:
+        entity:
+          domain: input_number
+
+    palier_temp_2:
+      name: Palier de température 2 (°C)
+      description: Au-dessus de ce palier → durée longue (z min).
+      selector:
+        entity:
+          domain: input_number
+
+    # ── Durées d'arrosage (configurables via input_number) ────
+    duree_min_froid:
+      name: Durée d'arrosage — température < palier 1 (min)
+      description: Durée x — appliquée quand il fait frais.
+      selector:
+        entity:
+          domain: input_number
+
+    duree_min_moyen:
+      name: Durée d'arrosage — température entre palier 1 et palier 2 (min)
+      description: Durée y — appliquée pour une température intermédiaire.
+      selector:
+        entity:
+          domain: input_number
+
+    duree_min_chaud:
+      name: Durée d'arrosage — température > palier 2 (min)
+      description: Durée z — appliquée quand il fait chaud.
+      selector:
+        entity:
+          domain: input_number
+
+    # ── Déclenchement ─────────────────────────────────────────
+    heure_declenchement:
+      name: Heure de déclenchement
+      description: >
+        Heure à laquelle le check pluie/température et l'arrosage sont
+        lancés chaque jour.
+      selector:
+        entity:
+          domain: input_datetime
+
+    # ── Actionneur ────────────────────────────────────────────
+    cde_arrosage:
+      name: Switch / électrovanne d'arrosage
+      selector:
+        entity:
+          domain: switch
+
+    # ── Notifications ─────────────────────────────────────────
+    service_notification:
+      name: Service de notification
+      description: "Ex : notify.Yann — doit exister dans votre HA"
+      default: notify.notify
+      selector:
+        text:
+
+    activer_notifications:
+      name: Activer les notifications
+      description: >
+        input_boolean — active (on) ou désactive (off) les notifications
+        de déclenchement/annulation de l'arrosage.
+      selector:
+        entity:
+          domain: input_boolean
+
+# ── Comportement de l'automation ──────────────────────────────
+mode: single
+
+# ── Déclencheurs ──────────────────────────────────────────────
+trigger:
+  - id: heure_arrosage
+    platform: time
+    at: !input heure_declenchement
+
+# ── Conditions globales ───────────────────────────────────────
+condition: []
+
+# ── Actions ───────────────────────────────────────────────────
+action:
+  # ── Étape 1 : Calcul des variables ────────────────────────
+  - variables:
+      _temp:          !input capteur_temperature
+      _pluie:         !input capteur_pluie
+      _seuil_pluie:   !input seuil_pluie_mm
+      _palier1:       !input palier_temp_1
+      _palier2:       !input palier_temp_2
+      _duree_froid:   !input duree_min_froid
+      _duree_moyen:   !input duree_min_moyen
+      _duree_chaud:   !input duree_min_chaud
+      _cde_arrosage:  !input cde_arrosage
+      _notif:         !input service_notification
+      _activer_notif: !input activer_notifications
+
+      notif_active: "{{ is_state(_activer_notif, 'on') }}"
+
+      # ── Valeurs mesurées / seuils ───────────────────────────
+      temperature: "{{ states(_temp) | float(15) }}"
+      pluie_mm:    "{{ states(_pluie) | float(0) }}"
+      seuil_pluie: "{{ states(_seuil_pluie) | float(1) }}"
+      palier1:     "{{ states(_palier1) | float(10) }}"
+      palier2:     "{{ states(_palier2) | float(25) }}"
+      duree_froid: "{{ states(_duree_froid) | float(0) }}"
+      duree_moyen: "{{ states(_duree_moyen) | float(0) }}"
+      duree_chaud: "{{ states(_duree_chaud) | float(0) }}"
+
+      # ── Décision pluie ──────────────────────────────────────
+      a_plu: "{{ pluie_mm >= seuil_pluie }}"
+
+      # ── Durée d'arrosage selon le palier de température ────
+      duree_min: >
+        {% if temperature < palier1 %}
+          {{ duree_froid }}
+        {% elif temperature > palier2 %}
+          {{ duree_chaud }}
+        {% else %}
+          {{ duree_moyen }}
+        {% endif %}
+      palier_txt: >
+        {% if temperature < palier1 %}
+          froid (< {{ palier1 }}°C)
+        {% elif temperature > palier2 %}
+          chaud (> {{ palier2 }}°C)
+        {% else %}
+          moyen ({{ palier1 }}–{{ palier2 }}°C)
+        {% endif %}
+
+  # ═══════════════════════════════════════════════════════════
+  # DEBUG LOG
+  # ═══════════════════════════════════════════════════════════
+  - service: system_log.write
+    data:
+      level: warning
+      logger: blueprint.arrosage_automatique
+      message: >
+        [ARROSAGE] temp={{ temperature }}°C | pluie={{ pluie_mm }}mm (seuil {{ seuil_pluie }}mm)
+        | a_plu={{ a_plu }} | palier={{ palier_txt }} | duree={{ duree_min }}min
+
+  # ── Annulation si pluie détectée ──────────────────────────
+  - if:
+      - condition: template
+        value_template: "{{ a_plu }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ notif_active }}"
+        then:
+          - service: "{{ _notif }}"
+            data:
+              title: "🌧️ Arrosage annulé"
+              message: >
+                Cumul de pluie : {{ pluie_mm | round(1) }}mm (seuil {{ seuil_pluie | round(1) }}mm)
+                Arrosage annulé aujourd'hui.
+      - stop: "Pluie détectée — arrosage annulé"
+
+  # ── Durée nulle → pas d'arrosage ──────────────────────────
+  - if:
+      - condition: template
+        value_template: "{{ duree_min | float(0) <= 0 }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ notif_active }}"
+        then:
+          - service: "{{ _notif }}"
+            data:
+              title: "💧 Arrosage non déclenché"
+              message: >
+                Température : {{ temperature | round(1) }}°C ({{ palier_txt }})
+                Durée configurée à 0 min pour ce palier — arrosage non déclenché.
+      - stop: "Durée nulle pour ce palier — arrosage non déclenché"
+
+  # ── Arrosage : marche pendant la durée calculée ───────────
+  - if:
+      - condition: template
+        value_template: "{{ notif_active }}"
+    then:
+      - service: "{{ _notif }}"
+        data:
+          title: "💧 Arrosage démarré"
+          message: >
+            Température : {{ temperature | round(1) }}°C ({{ palier_txt }})
+            Durée : {{ duree_min | round(0) | int }} min
+
+  - service: switch.turn_on
+    target:
+      entity_id: !input cde_arrosage
+
+  - delay:
+      minutes: "{{ duree_min | round(0) | int }}"
+
+  - service: switch.turn_off
+    target:
+      entity_id: !input cde_arrosage

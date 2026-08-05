@@ -1,0 +1,91 @@
+# ============================================================
+# Helpers pour le blueprint "Arrosage Automatique"
+# (arrosage_automatique_blueprint.yaml)
+#
+# Installation — deux méthodes au choix :
+#
+# 1) Package (recommandé, ne touche pas à configuration.yaml) :
+#    - Copiez ce fichier dans votre dossier config (ex: packages/).
+#    - Dans configuration.yaml, activez les packages si ce n'est pas
+#      déjà fait :
+#        homeassistant:
+#          packages: !include_dir_named packages
+#    - Redémarrez Home Assistant.
+#
+# 2) Fusion manuelle :
+#    - Copiez le contenu des sections input_number / input_datetime /
+#      input_boolean ci-dessous dans les sections correspondantes de
+#      votre configuration.yaml (fusionnez si elles existent déjà).
+#    - Redémarrez Home Assistant.
+#
+# Une fois créés, sélectionnez ces entités dans les champs du
+# blueprint lors de la création de l'automation.
+# ============================================================
+
+input_number:
+  arrosage_seuil_pluie_mm:
+    name: Arrosage - Seuil de pluie
+    icon: mdi:weather-rainy
+    min: 0
+    max: 20
+    step: 0.5
+    unit_of_measurement: mm
+    initial: 1
+
+  arrosage_palier_temp_1:
+    name: Arrosage - Palier température 1
+    icon: mdi:thermometer-low
+    min: -10
+    max: 40
+    step: 0.5
+    unit_of_measurement: "°C"
+    initial: 15
+
+  arrosage_palier_temp_2:
+    name: Arrosage - Palier température 2
+    icon: mdi:thermometer-high
+    min: -10
+    max: 45
+    step: 0.5
+    unit_of_measurement: "°C"
+    initial: 28
+
+  arrosage_duree_froid:
+    name: Arrosage - Durée (température < palier 1)
+    icon: mdi:timer-outline
+    min: 0
+    max: 120
+    step: 1
+    unit_of_measurement: min
+    initial: 5
+
+  arrosage_duree_moyen:
+    name: Arrosage - Durée (température entre palier 1 et 2)
+    icon: mdi:timer-outline
+    min: 0
+    max: 120
+    step: 1
+    unit_of_measurement: min
+    initial: 10
+
+  arrosage_duree_chaud:
+    name: Arrosage - Durée (température > palier 2)
+    icon: mdi:timer-outline
+    min: 0
+    max: 180
+    step: 1
+    unit_of_measurement: min
+    initial: 15
+
+input_datetime:
+  arrosage_heure_declenchement:
+    name: Arrosage - Heure de déclenchement
+    has_date: false
+    has_time: true
+    initial: "06:00:00"
+
+input_boolean:
+  arrosage_activer_notifications:
+    name: Arrosage - Activer les notifications
+    icon: mdi:bell-outline
+    initial: true
