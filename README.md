@@ -2,14 +2,17 @@
 
 Blueprint Home Assistant pour l'arrosage automatique : se déclenche une fois
 par jour à heure fixe, annule si de la pluie a été détectée (intégration
-Météo-France), sinon applique une durée d'arrosage selon 2 paliers de
-température extérieure.
+Météo-France), sinon applique une durée d'arrosage selon 2 paliers appliqués
+à la température maximale prévue du jour (prévision quotidienne
+Météo-France).
 
 **Logique :**
 - Pluie détectée (cumul ≥ seuil configuré) → arrosage annulé
-- Température < palier 1 → durée courte
-- Palier 1 ≤ température ≤ palier 2 → durée moyenne
-- Température > palier 2 → durée longue
+- Température max < palier 1 → durée courte
+- Palier 1 ≤ température max ≤ palier 2 → durée moyenne
+- Température max > palier 2 → durée longue
+
+> Nécessite Home Assistant 2023.9+ (action `weather.get_forecasts`).
 
 ## Fichiers
 
@@ -68,7 +71,8 @@ Cela crée les entités suivantes :
 1. **Paramètres → Automatisations et scènes → Créer une automation → À
    partir d'un blueprint → Arrosage Automatique**.
 2. Renseignez les champs :
-   - **Capteur température extérieure** : votre capteur de température
+   - **Entité météo (Météo-France)** : votre entité `weather.xxx` créée par
+     l'intégration Météo-France (fournit la température max prévue du jour)
    - **Capteur cumul de pluie** : capteur de cumul de pluie de l'intégration
      Météo-France
    - **Seuil de pluie / Paliers de température / Durées** : les

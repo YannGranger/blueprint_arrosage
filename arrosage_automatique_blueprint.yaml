@@ -1,9 +1,10 @@
 # ============================================================
 # Blueprint : Arrosage Automatique
 # Déclenche l'arrosage une fois par jour à heure fixe, sauf s'il
-# a plu (intégration Météo-France), avec une durée variable
-# selon 3 paliers de température extérieure.
-# Compatible Home Assistant 2023.x+
+# a plu (intégration Météo-France), avec une durée variable selon
+# 3 paliers appliqués à la température maximale prévue du jour
+# (prévision quotidienne Météo-France).
+# Nécessite Home Assistant 2023.9+ (weather.get_forecasts).
 # ============================================================
 
 blueprint:
@@ -14,10 +15,11 @@ blueprint:
     **Logique :**
     - Si de la pluie a été détectée (cumul du capteur pluie Météo-France ≥
       seuil configuré) → l'arrosage est annulé.
-    - Sinon, la durée d'arrosage dépend de la température extérieure :
-      - Température < palier 1 → durée courte (x min)
-      - Palier 1 ≤ température ≤ palier 2 → durée moyenne (y min)
-      - Température > palier 2 → durée longue (z min)
+    - Sinon, la durée d'arrosage dépend de la température maximale prévue
+      du jour (prévision quotidienne Météo-France) :
+      - Température max < palier 1 → durée courte (x min)
+      - Palier 1 ≤ température max ≤ palier 2 → durée moyenne (y min)
+      - Température max > palier 2 → durée longue (z min)
 
     Tous les seuils de température, le seuil de pluie et toutes les durées
     sont entièrement configurables via des `input_number` que vous créez
@@ -25,17 +27,19 @@ blueprint:
   domain: automation
   author: Yann Granger
   homeassistant:
-    min_version: "2023.4.0"
+    min_version: "2023.9.0"
 
   input:
     # ── Capteurs ──────────────────────────────────────────────
-    capteur_temperature:
-      name: Capteur température extérieure
-      description: Température extérieure utilisée pour choisir la durée d'arrosage.
+    entite_meteo:
+      name: Entité météo (Météo-France)
+      description: >
+        Entité `weather.xxx` de l'intégration Météo-France. Le blueprint
+        récupère sa prévision quotidienne et utilise la température
+        maximale du jour pour choisir la durée d'arrosage.
       selector:
         entity:
-          domain: sensor
-          device_class: temperature
+          domain: weather
 
     capteur_pluie:
       name: Capteur cumul de pluie (Météo-France)
@@ -140,9 +144,17 @@ condition: []
 
 # ── Actions ───────────────────────────────────────────────────
 action:
-  # ── Étape 1 : Calcul des variables ────────────────────────
+  # ── Étape 1 : Récupération de la prévision Météo-France ───
+  - action: weather.get_forecasts
+    target:
+      entity_id: !input entite_meteo
+    data:
+      type: daily
+    response_variable: meteo_forecast
+
+  # ── Étape 2 : Calcul des variables ────────────────────────
   - variables:
-      _temp:          !input capteur_temperature
+      _entite_meteo:  !input entite_meteo
       _pluie:         !input capteur_pluie
       _seuil_pluie:   !input seuil_pluie_mm
       _palier1:       !input palier_temp_1
@@ -157,7 +169,11 @@ action:
       notif_active: "{{ is_state(_activer_notif, 'on') }}"
 
       # ── Valeurs mesurées / seuils ───────────────────────────
-      temperature: "{{ states(_temp) | float(15) }}"
+      # Température max du jour = 1er élément de la prévision quotidienne
+      temperature: >
+        {{ (meteo_forecast.get(_entite_meteo, {})
+            .get('forecast', [{}])[0]
+            .get('temperature', 15)) | float(15) }}
       pluie_mm:    "{{ states(_pluie) | float(0) }}"
       seuil_pluie: "{{ states(_seuil_pluie) | float(1) }}"
       palier1:     "{{ states(_palier1) | float(10) }}"
@@ -195,7 +211,8 @@ action:
       level: warning
       logger: blueprint.arrosage_automatique
       message: >
-        [ARROSAGE] temp={{ temperature }}°C | pluie={{ pluie_mm }}mm (seuil {{ seuil_pluie }}mm)
+        [ARROSAGE] temp_max_meteo={{ temperature }}°C ({{ _entite_meteo }})
+        | pluie={{ pluie_mm }}mm (seuil {{ seuil_pluie }}mm)
         | a_plu={{ a_plu }} | palier={{ palier_txt }} | duree={{ duree_min }}min
 
   # ── Annulation si pluie détectée ──────────────────────────
@@ -228,7 +245,7 @@ action:
             data:
               title: "💧 Arrosage non déclenché"
               message: >
-                Température : {{ temperature | round(1) }}°C ({{ palier_txt }})
+                Température max prévue : {{ temperature | round(1) }}°C ({{ palier_txt }})
                 Durée configurée à 0 min pour ce palier — arrosage non déclenché.
       - stop: "Durée nulle pour ce palier — arrosage non déclenché"
 
@@ -241,7 +258,7 @@ action:
         data:
           title: "💧 Arrosage démarré"
           message: >
-            Température : {{ temperature | round(1) }}°C ({{ palier_txt }})
+            Température max prévue : {{ temperature | round(1) }}°C ({{ palier_txt }})
             Durée : {{ duree_min | round(0) | int }} min
 
   - service: switch.turn_on
